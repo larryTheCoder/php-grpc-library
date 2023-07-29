@@ -37,7 +37,7 @@ abstract class AbstractCall
     protected $deserialize;
     protected $metadata;
     protected $trailing_metadata;
-	protected $is_async;
+    protected $is_async;
 
     /**
      * Create a new Call wrapper object.
@@ -69,7 +69,7 @@ abstract class AbstractCall
         } else {
             $this->call = new Call($channel, $method, $deadline);
         }
-		$this->is_async = $clientAsync;
+        $this->is_async = $clientAsync;
         $this->deserialize = $deserialize;
         $this->metadata = null;
         $this->trailing_metadata = null;
