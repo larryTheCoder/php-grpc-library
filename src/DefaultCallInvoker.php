@@ -18,7 +18,7 @@
  */
 namespace Grpc;
 
-use Grpc\Grpc\Channel;
+use Grpc\server\ServerStreamingCall;
 
 /**
  * Default call invoker in the gRPC stub.

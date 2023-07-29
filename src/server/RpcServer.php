@@ -17,10 +17,11 @@
  *
  */
 
-namespace Grpc;
+namespace Grpc\server;
 
-use Grpc\Grpc\Server;
-use const Grpc\Grpc\STATUS_INTERNAL;
+use Grpc\MethodDescriptor;
+use Grpc\Server;
+use const Grpc\STATUS_INTERNAL;
 
 /**
  * This is an experimental and incomplete implementation of gRPC server

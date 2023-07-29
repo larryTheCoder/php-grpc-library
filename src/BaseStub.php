@@ -21,11 +21,9 @@ namespace Grpc;
 
 use Grpc\Connect;
 use Grpc\Exception;
-use Grpc\Grpc\Channel;
-use Grpc\Grpc\ChannelCredentials;
-use Grpc\Grpc\Timeval;
-use Grpc\InterceptorChannel;
-use Grpc\InvalidArgumentException;
+use Grpc\Internal\InterceptorChannel;
+use Grpc\server\ServerStreamingCall;
+use InvalidArgumentException;
 
 /**
  * Base class for generated client stubs. Stub methods are expected to call
@@ -223,7 +221,7 @@ class BaseStub
         // is bad.
         $last_slash_idx = strrpos($method, '/');
         if ($last_slash_idx === false) {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 'service name must have a slash'
             );
         }
@@ -257,7 +255,7 @@ class BaseStub
         $metadata_copy = [];
         foreach ($metadata as $key => $value) {
             if (!preg_match('/^[.A-Za-z\d_-]+$/', $key)) {
-                throw new \InvalidArgumentException(
+                throw new InvalidArgumentException(
                     'Metadata keys must be nonempty strings containing only '.
                     'alphanumeric characters, hyphens, underscores and dots'
                 );

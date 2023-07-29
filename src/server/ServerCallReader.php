@@ -17,9 +17,9 @@
  *
  */
 
-namespace Grpc;
+namespace Grpc\server;
 
-use const Grpc\Grpc\OP_RECV_MESSAGE;
+use const Grpc\OP_RECV_MESSAGE;
 
 /**
  * This is an experimental and incomplete implementation of gRPC server

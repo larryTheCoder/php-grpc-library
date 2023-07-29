@@ -17,7 +17,7 @@
  *
  */
 
-namespace Grpc;
+namespace Grpc\server;
 
 /**
  * This is an experimental and incomplete implementation of gRPC server

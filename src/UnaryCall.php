@@ -19,12 +19,8 @@
 
 namespace Grpc;
 
-use const Grpc\Grpc\OP_RECV_INITIAL_METADATA;
-use const Grpc\Grpc\OP_RECV_MESSAGE;
-use const Grpc\Grpc\OP_RECV_STATUS_ON_CLIENT;
-use const Grpc\Grpc\OP_SEND_CLOSE_FROM_CLIENT;
-use const Grpc\Grpc\OP_SEND_INITIAL_METADATA;
-use const Grpc\Grpc\OP_SEND_MESSAGE;
+use Closure;
+use RuntimeException;
 
 /**
  * Represents an active call that sends a single message and then gets a
@@ -35,13 +31,13 @@ class UnaryCall extends AbstractCall
     /**
      * Start the call.
      *
-     * @param mixed $data     The data to send
+     * @param mixed $data The data to send
      * @param array $metadata Metadata to send with the call, if applicable
      *                        (optional)
-     * @param array $options  An array of options, possible keys:
+     * @param array $options An array of options, possible keys:
      *                        'flags' => a number (optional)
      */
-    public function start($data, array $metadata = [], array $options = [])
+    public function start($data, array $metadata = [], array $options = [], ?Closure $onComplete = null)
     {
         $message_array = ['message' => $this->_serializeMessage($data)];
         if (isset($options['flags'])) {
@@ -51,15 +47,24 @@ class UnaryCall extends AbstractCall
             OP_SEND_INITIAL_METADATA => $metadata,
             OP_SEND_MESSAGE => $message_array,
             OP_SEND_CLOSE_FROM_CLIENT => true,
-        ]);
+        ], function ($event = null) use ($onComplete) {
+            if ($event === null) {
+                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
+            }
+
+            if ($onComplete !== null) {
+                $onComplete();
+            }
+        });
     }
 
     /**
      * Wait for the server to respond with data and a status.
      *
-     * @return array [response data, status]
+     * @param Closure $onComplete [response data, status]
+     * @return void
      */
-    public function wait()
+    public function read(Closure $onComplete): void
     {
         $batch = [
             OP_RECV_MESSAGE => true,
@@ -68,38 +73,20 @@ class UnaryCall extends AbstractCall
         if ($this->metadata === null) {
             $batch[OP_RECV_INITIAL_METADATA] = true;
         }
-        $event = $this->call->startBatch($batch);
-        if ($this->metadata === null) {
-            $this->metadata = $event->metadata;
-        }
-        $status = $event->status;
-        $this->trailing_metadata = $status->metadata;
 
-        return [$this->_deserializeResponse($event->message), $status];
-    }
-
-    public function callAsync($data, $callback, array $metadata = [], array $options = [])
-    {
-        $message_array = ['message' => $this->_serializeMessage($data)];
-        if (isset($options['flags'])) {
-            $message_array['flags'] = $options['flags'];
-        }
-        $this->call->startBatch(
-            [
-                OP_SEND_INITIAL_METADATA => $metadata,
-                OP_SEND_MESSAGE => $message_array,
-                OP_SEND_CLOSE_FROM_CLIENT => true,
-                OP_RECV_INITIAL_METADATA => true,
-                OP_RECV_MESSAGE => true,
-                OP_RECV_STATUS_ON_CLIENT => true,
-            ],
-            function ($error, $event = null) use ($callback) {
-                if ($error === null) {
-                    $event->response = $this->_deserializeResponse($event->message);
-                }
-                $callback($error, $event);
+        $this->call->startBatch($batch, function ($event = null) use ($onComplete) {
+            if ($event === null) {
+                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
             }
-        );
+
+            if ($this->metadata === null) {
+                $this->metadata = $event->metadata;
+            }
+            $status = $event->status;
+            $this->trailing_metadata = $status->metadata;
+
+            $onComplete($this->_deserializeResponse($event->message), $status);
+        });
     }
 
     /**
@@ -108,8 +95,15 @@ class UnaryCall extends AbstractCall
     public function getMetadata()
     {
         if ($this->metadata === null) {
-            $event = $this->call->startBatch([OP_RECV_INITIAL_METADATA => true]);
-            $this->metadata = $event->metadata;
+            $this->call->startBatch([
+                OP_RECV_INITIAL_METADATA => true
+            ], function ($event = null) {
+                if ($event === null) {
+                    throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
+                }
+
+                $this->metadata = $event->metadata;
+            });
         }
         return $this->metadata;
     }
