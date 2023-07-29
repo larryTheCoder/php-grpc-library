@@ -18,8 +18,6 @@
  */
 namespace Grpc;
 
-use Grpc\server\ServerStreamingCall;
-
 /**
  * Default call invoker in the gRPC stub.
  */

@@ -20,7 +20,9 @@
 namespace Grpc;
 
 use Closure;
+use Generator;
 use RuntimeException;
+use SOFe\AwaitGenerator\Await;
 
 /**
  * Represents an active call that allows for sending and receiving messages
@@ -50,6 +52,29 @@ class BidiStreamingCall extends AbstractCall
     }
 
     /**
+     * @param Closure $onMessage A stream of response values.
+     */
+    public function responses(Closure $onMessage): void
+    {
+        Await::f2c(function () use ($onMessage): Generator {
+            $continue = true;
+
+            repeat:
+
+            // In a non-async operation, this will become an infinite recursion.
+            $this->read(yield);
+            $read_event = yield Await::ONCE;
+
+            $response = $read_event->message;
+            while ($response !== null && $continue) {
+                $continue = $onMessage($this->_deserializeResponse($response));
+
+                goto repeat;
+            }
+        });
+    }
+
+    /**
      * Read the response of a request from a callable function. This method may perform thread-blocking
      * operation if "client_async" is set to false.
      *
@@ -69,10 +94,7 @@ class BidiStreamingCall extends AbstractCall
                     $this->metadata = $event->metadata;
                 }
 
-                $status = $event->status;
-                $this->trailing_metadata = $status->metadata;
-
-                return [$this->_deserializeResponse($event->message), $status];
+                $callback($this->_deserializeResponse($event->message));
             }
 
             throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");

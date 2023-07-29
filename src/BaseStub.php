@@ -22,7 +22,6 @@ namespace Grpc;
 use Grpc\Connect;
 use Grpc\Exception;
 use Grpc\Internal\InterceptorChannel;
-use Grpc\server\ServerStreamingCall;
 use InvalidArgumentException;
 
 /**
@@ -51,9 +50,7 @@ class BaseStub
     {
         if (!method_exists('Grpc\ChannelCredentials', 'isDefaultRootsPemSet') ||
             !ChannelCredentials::isDefaultRootsPemSet()) {
-            $ssl_roots = file_get_contents(
-                dirname(__FILE__).'/../../../../etc/roots.pem'
-            );
+            $ssl_roots = file_get_contents(dirname(__FILE__, 1) . "/resources/roots.pem");
             ChannelCredentials::setDefaultRootsPem($ssl_roots);
         }
 
