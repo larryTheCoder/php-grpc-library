@@ -50,7 +50,7 @@ class BaseStub
     {
         if (!method_exists('Grpc\ChannelCredentials', 'isDefaultRootsPemSet') ||
             !ChannelCredentials::isDefaultRootsPemSet()) {
-            $ssl_roots = file_get_contents(dirname(__FILE__, 1) . "/resources/roots.pem");
+            $ssl_roots = file_get_contents(dirname(__FILE__, 2) . "/resources/roots.pem");
             ChannelCredentials::setDefaultRootsPem($ssl_roots);
         }
 

@@ -37,7 +37,7 @@ class UnaryCall extends AbstractCall
      * @param array $options An array of options, possible keys:
      *                        'flags' => a number (optional)
      */
-    public function start($data, array $metadata = [], array $options = [], ?Closure $onComplete = null)
+    public function start($data, array $metadata = [], array $options = [])
     {
         $message_array = ['message' => $this->_serializeMessage($data)];
         if (isset($options['flags'])) {
@@ -47,14 +47,13 @@ class UnaryCall extends AbstractCall
             OP_SEND_INITIAL_METADATA => $metadata,
             OP_SEND_MESSAGE => $message_array,
             OP_SEND_CLOSE_FROM_CLIENT => true,
-        ], function ($event = null) use ($onComplete) {
+            OP_RECV_INITIAL_METADATA => true
+        ], function ($event = null) {
             if ($event === null) {
                 throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
             }
 
-            if ($onComplete !== null) {
-                $onComplete();
-            }
+            $this->metadata = $event->metadata;
         });
     }
 
@@ -64,47 +63,22 @@ class UnaryCall extends AbstractCall
      * @param Closure $onComplete [response data, status]
      * @return void
      */
-    public function read(Closure $onComplete): void
+    public function onClientNext(Closure $onComplete): void
     {
         $batch = [
             OP_RECV_MESSAGE => true,
             OP_RECV_STATUS_ON_CLIENT => true,
         ];
-        if ($this->metadata === null) {
-            $batch[OP_RECV_INITIAL_METADATA] = true;
-        }
 
         $this->call->startBatch($batch, function ($event = null) use ($onComplete) {
             if ($event === null) {
                 throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
             }
 
-            if ($this->metadata === null) {
-                $this->metadata = $event->metadata;
-            }
             $status = $event->status;
             $this->trailing_metadata = $status->metadata;
 
             $onComplete($this->_deserializeResponse($event->message), $status);
         });
-    }
-
-    /**
-     * @return mixed The metadata sent by the server
-     */
-    public function getMetadata()
-    {
-        if ($this->metadata === null) {
-            $this->call->startBatch([
-                OP_RECV_INITIAL_METADATA => true
-            ], function ($event = null) {
-                if ($event === null) {
-                    throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-                }
-
-                $this->metadata = $event->metadata;
-            });
-        }
-        return $this->metadata;
     }
 }

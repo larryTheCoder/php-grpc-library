@@ -30,104 +30,88 @@ use SOFe\AwaitGenerator\Await;
  */
 class ServerStreamingCall extends AbstractCall
 {
+    /** @var bool */
+    private $read_active = true;
+    /** @var Closure */
+    private $on_close_callback;
+
     /**
      * Start the call.
      *
-     * @param mixed $data     The data to send
+     * @param mixed $data The data to send
      * @param array $metadata Metadata to send with the call, if applicable
      *                        (optional)
-     * @param array $options  An array of options, possible keys:
+     * @param array $options An array of options, possible keys:
      *                        'flags' => a number (optional)
      */
-    public function start($data, array $metadata = [], array $options = [], ?Closure $onComplete = null)
+    public function start($data, array $metadata = [], array $options = [])
     {
-        $message_array = ['message' => $this->_serializeMessage($data)];
-        if (array_key_exists('flags', $options)) {
-            $message_array['flags'] = $options['flags'];
-        }
-        $this->call->startBatch([
-            OP_SEND_INITIAL_METADATA => $metadata,
-            OP_SEND_MESSAGE => $message_array,
-            OP_SEND_CLOSE_FROM_CLIENT => true,
-        ], function ($event = null) use ($onComplete) {
+        Await::f2c(function () use ($data, $metadata, $options): Generator {
+            $message_array = ['message' => $this->_serializeMessage($data)];
+            if (array_key_exists('flags', $options)) {
+                $message_array['flags'] = $options['flags'];
+            }
+
+            $this->call->startBatch([
+                OP_SEND_INITIAL_METADATA => $metadata,
+                OP_SEND_MESSAGE => $message_array,
+                OP_SEND_CLOSE_FROM_CLIENT => true,
+                OP_RECV_INITIAL_METADATA => true
+            ], yield);
+
+            $event = yield Await::ONCE;
             if ($event === null) {
                 throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
             }
 
-            if ($onComplete !== null) {
-                $onComplete();
+            $this->metadata = $event->metadata;
+            $this->call->startBatch([OP_RECV_STATUS_ON_CLIENT => true], yield);
+
+            $event = yield Await::ONCE;
+            if ($event === null) {
+                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
             }
+
+            $this->read_active = false;
+
+            ($this->on_close_callback)($event->status->code, $event->status->reason, $event->status->details);
         });
     }
 
     /**
-     * @param Closure $onMessage A stream of response values.
+     * Listen for a stream of messages sent by the server. The stream of message will continue to flow
+     * until the server closed its connection.
+     *
+     * @param Closure $onMessage The stream of messages.
      */
-    public function responses(Closure $onMessage): void
+    public function onStreamNext(Closure $onMessage): void
     {
         Await::f2c(function () use ($onMessage): Generator {
-            $batch = [OP_RECV_MESSAGE => true];
-            if ($this->metadata === null) {
-                $batch[OP_RECV_INITIAL_METADATA] = true;
-            }
-
-            $continue = true;
-
             repeat:
 
             // In a non-async operation, this will become an infinite recursion.
-            $this->call->startBatch($batch, yield);
-            $read_event = yield Await::ONCE;
+            $this->call->startBatch([OP_RECV_MESSAGE => true], yield);
+            $event = yield Await::ONCE;
 
-            $response = $read_event->message;
-            while ($response !== null && $continue) {
-                $continue = $onMessage($this->_deserializeResponse($response));
-                $batch = [OP_RECV_MESSAGE => true];
+            if ($event === null) {
+                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
+            }
 
+            if ($this->read_active && $event->message !== null) {
+                $onMessage($this->_deserializeResponse($event->message));
                 goto repeat;
             }
         });
     }
 
     /**
-     * Wait for the server to send the status, and return it.
+     * Listen for call completion by the server. The callback will indicate that there will be no
+     * writes by the server after the callback is called.
      *
-     * @param Closure $onComplete The status object, with integer $code, string $details, and array $metadata members
-     *
-     * @phpstan-param Closure(mixed): void $onComplete
+     * @phpstan-param Closure(int, string, string): void $onCompleted
      */
-    public function getStatus(Closure $onComplete): void
+    public function onStreamCompleted(Closure $onCompleted): void
     {
-        $this->call->startBatch([
-            OP_RECV_STATUS_ON_CLIENT => true,
-        ], function ($event = null) use ($onComplete) {
-            if ($event === null) {
-                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-            }
-
-            $this->trailing_metadata = $event->status->metadata;
-
-            $onComplete($event->status);
-        });
-    }
-
-    /**
-     * @return mixed The metadata sent by the server
-     */
-    public function getMetadata()
-    {
-        if ($this->metadata === null) {
-            $this->call->startBatch([
-                OP_RECV_INITIAL_METADATA => true
-            ], function ($event = null) {
-                if ($event === null) {
-                    throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-                }
-
-                $this->metadata = $event->metadata;
-            });
-        }
-
-        return $this->metadata;
+        $this->on_close_callback = $onCompleted;
     }
 }

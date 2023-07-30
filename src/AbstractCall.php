@@ -63,9 +63,9 @@ abstract class AbstractCall
         } else {
             $deadline = Timeval::infFuture();
         }
-        $clientAsync = $options['client_async'] ?? false;
+        $clientAsync = $options['client_async'] ?? true;
         if ($clientAsync) {
-            $this->call = new Call($channel, $method, $deadline, null, $clientAsync);
+            $this->call = new Call($channel, $method, $deadline, "", $clientAsync);
         } else {
             $this->call = new Call($channel, $method, $deadline);
         }

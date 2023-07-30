@@ -30,75 +30,80 @@ use SOFe\AwaitGenerator\Await;
  */
 class BidiStreamingCall extends AbstractCall
 {
+    /** @var bool */
+    private $write_active = true;
+    /** @var bool */
+    private $read_active = true;
+    /** @var Closure */
+    private $on_close_callback;
+
     /**
-     * Start the call.
-     *
-     * @param array $metadata Metadata to send with the call, if applicable
-     *                        (optional)
+     * @internal
      */
-    public function start(array $metadata = [], ?Closure $onComplete = null): void
+    public function start(array $metadata = []): void
     {
-        $this->call->startBatch([
-            OP_SEND_INITIAL_METADATA => $metadata,
-        ], function ($event = null) use ($onComplete) {
+        Await::f2c(function () use ($metadata): Generator {
+            $this->call->startBatch([
+                OP_SEND_INITIAL_METADATA => $metadata,
+                OP_RECV_INITIAL_METADATA => true,
+            ], yield);
+
+            $event = yield Await::ONCE;
             if ($event === null) {
                 throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
             }
 
-            if ($onComplete !== null) {
-                $onComplete();
+            $this->metadata = $event->metadata;
+            $this->call->startBatch([OP_RECV_STATUS_ON_CLIENT => true], yield);
+
+            $event = yield Await::ONCE;
+            if ($event === null) {
+                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
             }
+
+            $this->read_active = false;
+
+            ($this->on_close_callback)($event->status->code, $event->status->reason, $event->status->details);
         });
     }
 
     /**
-     * @param Closure $onMessage A stream of response values.
+     * Listen for a stream of messages sent by the server. The stream of message will continue to flow
+     * until the call itself is closed or terminated.
+     *
+     * @param Closure $onMessage The stream of messages.
      */
-    public function responses(Closure $onMessage): void
+    public function onStreamNext(Closure $onMessage): void
     {
         Await::f2c(function () use ($onMessage): Generator {
-            $continue = true;
-
             repeat:
 
             // In a non-async operation, this will become an infinite recursion.
-            $this->read(yield);
-            $read_event = yield Await::ONCE;
+            $batch = [OP_RECV_MESSAGE => true];
 
-            $response = $read_event->message;
-            while ($response !== null && $continue) {
-                $continue = $onMessage($this->_deserializeResponse($response));
+            $this->call->startBatch($batch, yield);
+            $event = yield Await::ONCE;
 
+            if ($event === null) {
+                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
+            }
+
+            if ($this->read_active && $event->message !== null) {
+                $onMessage($this->_deserializeResponse($event->message));
                 goto repeat;
             }
         });
     }
 
     /**
-     * Read the response of a request from a callable function. This method may perform thread-blocking
-     * operation if "client_async" is set to false.
+     * Listen for call completion by the server. The callback will indicate that there will be no
+     * writes by the server after the callback is called.
      *
-     * @param Closure $callback (Response data, Status)
-     * @return void
+     * @phpstan-param Closure(int, string, string): void $onCompleted
      */
-    public function read(Closure $callback): void
+    public function onStreamCompleted(Closure $onCompleted): void
     {
-        $batch = [OP_RECV_MESSAGE => true];
-        if ($this->metadata === null) {
-            $batch[OP_RECV_INITIAL_METADATA] = true;
-        }
-
-        $this->call->startBatch($batch, function ($event = null) use ($callback) {
-            if ($event !== null) {
-                if ($this->metadata === null) {
-                    $this->metadata = $event->metadata;
-                }
-
-                $callback($this->_deserializeResponse($event->message));
-            }
-
-            throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-        });
+        $this->on_close_callback = $onCompleted;
     }
 
     /**
@@ -108,12 +113,17 @@ class BidiStreamingCall extends AbstractCall
      * @param array $options An array of options, possible keys: 'flags' => a number (optional)
      * @param Closure|null $onComplete Called when the request were completed.
      */
-    public function write($data, array $options = [], ?Closure $onComplete = null): void
+    public function onClientNext($data, array $options = [], ?Closure $onComplete = null): void
     {
+        if (!$this->write_active) {
+            throw new RuntimeException("Cannot write more messages to the server after writesDone.");
+        }
+
         $message_array = ['message' => $this->_serializeMessage($data)];
         if (array_key_exists('flags', $options)) {
             $message_array['flags'] = $options['flags'];
         }
+
         $this->call->startBatch([
             OP_SEND_MESSAGE => $message_array,
         ], function ($event = null) use ($onComplete) {
@@ -128,9 +138,9 @@ class BidiStreamingCall extends AbstractCall
     }
 
     /**
-     * Indicate that no more writes will be sent.
+     * Indicate that no more writes will be sent, but the server will still be able to send messages
      */
-    public function writesDone(Closure $onComplete): void
+    public function onClientCompleted(Closure $onComplete): void
     {
         $this->call->startBatch([
             OP_SEND_CLOSE_FROM_CLIENT => true,
@@ -139,29 +149,9 @@ class BidiStreamingCall extends AbstractCall
                 throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
             }
 
+            $this->write_active = false;
+
             $onComplete();
-        });
-    }
-
-    /**
-     * Returns a status when the server has sent it to the client.
-     *
-     * @param Closure $onComplete The status object, with integer $code, string $details, and array $metadata members
-     *
-     * @phpstan-param Closure(mixed): void $onComplete
-     */
-    public function getStatus(Closure $onComplete): void
-    {
-        $this->call->startBatch([
-            OP_RECV_STATUS_ON_CLIENT => true,
-        ], function ($event = null) use ($onComplete) {
-            if ($event === null) {
-                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-            }
-
-            $this->trailing_metadata = $event->status->metadata;
-
-            $onComplete($event->status);
         });
     }
 }

@@ -21,12 +21,6 @@ namespace Grpc;
 
 use Closure;
 use RuntimeException;
-use const Grpc\OP_RECV_INITIAL_METADATA;
-use const Grpc\OP_RECV_MESSAGE;
-use const Grpc\OP_RECV_STATUS_ON_CLIENT;
-use const Grpc\OP_SEND_CLOSE_FROM_CLIENT;
-use const Grpc\OP_SEND_INITIAL_METADATA;
-use const Grpc\OP_SEND_MESSAGE;
 
 /**
  * Represents an active call that sends a stream of messages and then gets
@@ -34,39 +28,37 @@ use const Grpc\OP_SEND_MESSAGE;
  */
 class ClientStreamingCall extends AbstractCall
 {
+    /** @var bool */
+    private $write_active = true;
+
     /**
      * Start the gRPC call.
      *
      * @param array $metadata Metadata to send with the call, if applicable (optional)
      */
-    public function start(array $metadata = [], ?Closure $onComplete = null)
+    public function start(array $metadata = [])
     {
-        $this->call->startBatch([
-            OP_SEND_INITIAL_METADATA => $metadata,
-        ], function ($event = null) use ($onComplete) {
-            if ($event === null) {
-                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-            }
-
-            if ($onComplete !== null) {
-                $onComplete();
-            }
-        });
+        $this->call->startBatch([OP_SEND_INITIAL_METADATA => $metadata]);
     }
 
     /**
-     * Write a single message to the server. This cannot be called after read is called.
+     * Write a single message to the server. This cannot be called after writesDone is called.
      *
      * @param mixed $data The data to write
      * @param array $options An array of options, possible keys: 'flags' => a number (optional)
      * @param Closure|null $onComplete Called when the request were completed.
      */
-    public function write($data, array $options = [], ?Closure $onComplete = null): void
+    public function onClientNext($data, array $options = [], ?Closure $onComplete = null): void
     {
+        if (!$this->write_active) {
+            throw new RuntimeException("Cannot write more messages to the server after writesDone.");
+        }
+
         $message_array = ['message' => $this->_serializeMessage($data)];
         if (array_key_exists('flags', $options)) {
             $message_array['flags'] = $options['flags'];
         }
+
         $this->call->startBatch([
             OP_SEND_MESSAGE => $message_array,
         ], function ($event = null) use ($onComplete) {
@@ -84,27 +76,29 @@ class ClientStreamingCall extends AbstractCall
      * Read the response of a request from a callable function. This method may perform thread-blocking
      * operation if "client_async" is set to false.
      *
-     * @param Closure $callback (Response data, Status)
+     * @param Closure $onMessage (Response data, Status)
      * @return void
      */
-    public function read(Closure $callback)
+    public function onStreamNext(Closure $onMessage): void
     {
         $this->call->startBatch([
             OP_SEND_CLOSE_FROM_CLIENT => true,
             OP_RECV_INITIAL_METADATA => true,
             OP_RECV_MESSAGE => true,
             OP_RECV_STATUS_ON_CLIENT => true,
-        ], function ($event = null) use ($callback) {
-            if ($event !== null) {
-                $this->metadata = $event->metadata;
-
-                $status = $event->status;
-                $this->trailing_metadata = $status->metadata;
-
-                return [$this->_deserializeResponse($event->message), $status];
+        ], function ($event = null) use ($onMessage) {
+            if ($event === null) {
+                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
             }
 
-            throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
+            $this->write_active = false;
+
+            $this->metadata = $event->metadata;
+
+            $status = $event->status;
+            $this->trailing_metadata = $status->metadata;
+
+            $onMessage($this->_deserializeResponse($event->message), $status);
         });
     }
 }
