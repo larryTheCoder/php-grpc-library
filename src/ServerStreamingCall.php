@@ -60,17 +60,11 @@ class ServerStreamingCall extends AbstractCall
             ], yield);
 
             $event = yield Await::ONCE;
-            if ($event === null) {
-                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-            }
 
             $this->metadata = $event->metadata;
             $this->call->startBatch([OP_RECV_STATUS_ON_CLIENT => true], yield);
 
             $event = yield Await::ONCE;
-            if ($event === null) {
-                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-            }
 
             $this->read_active = false;
 
@@ -92,10 +86,6 @@ class ServerStreamingCall extends AbstractCall
             // In a non-async operation, this will become an infinite recursion.
             $this->call->startBatch([OP_RECV_MESSAGE => true], yield);
             $event = yield Await::ONCE;
-
-            if ($event === null) {
-                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-            }
 
             if ($this->read_active && $event->message !== null) {
                 $onMessage($this->_deserializeResponse($event->message));

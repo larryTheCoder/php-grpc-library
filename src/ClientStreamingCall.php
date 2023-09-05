@@ -61,11 +61,7 @@ class ClientStreamingCall extends AbstractCall
 
         $this->call->startBatch([
             OP_SEND_MESSAGE => $message_array,
-        ], function ($event = null) use ($onComplete) {
-            if ($event === null) {
-                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-            }
-
+        ], function () use ($onComplete) {
             if ($onComplete !== null) {
                 $onComplete();
             }
@@ -86,11 +82,7 @@ class ClientStreamingCall extends AbstractCall
             OP_RECV_INITIAL_METADATA => true,
             OP_RECV_MESSAGE => true,
             OP_RECV_STATUS_ON_CLIENT => true,
-        ], function ($event = null) use ($onMessage) {
-            if ($event === null) {
-                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-            }
-
+        ], function ($event) use ($onMessage) {
             $this->write_active = false;
 
             $this->metadata = $event->metadata;

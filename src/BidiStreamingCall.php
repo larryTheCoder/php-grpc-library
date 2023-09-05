@@ -49,17 +49,11 @@ class BidiStreamingCall extends AbstractCall
             ], yield);
 
             $event = yield Await::ONCE;
-            if ($event === null) {
-                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-            }
 
             $this->metadata = $event->metadata;
             $this->call->startBatch([OP_RECV_STATUS_ON_CLIENT => true], yield);
 
             $event = yield Await::ONCE;
-            if ($event === null) {
-                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-            }
 
             $this->read_active = false;
 
@@ -83,10 +77,6 @@ class BidiStreamingCall extends AbstractCall
 
             $this->call->startBatch($batch, yield);
             $event = yield Await::ONCE;
-
-            if ($event === null) {
-                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-            }
 
             if ($this->read_active && $event->message !== null) {
                 $onMessage($this->_deserializeResponse($event->message));
@@ -126,11 +116,7 @@ class BidiStreamingCall extends AbstractCall
 
         $this->call->startBatch([
             OP_SEND_MESSAGE => $message_array,
-        ], function ($event = null) use ($onComplete) {
-            if ($event === null) {
-                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-            }
-
+        ], function () use ($onComplete) {
             if ($onComplete !== null) {
                 $onComplete();
             }
@@ -144,11 +130,7 @@ class BidiStreamingCall extends AbstractCall
     {
         $this->call->startBatch([
             OP_SEND_CLOSE_FROM_CLIENT => true,
-        ], function ($event = null) use ($onComplete) {
-            if ($event === null) {
-                throw new RuntimeException("The gRPC request was unsuccessful, this may indicate that gRPC service is shutting down or timed out.");
-            }
-
+        ], function () use ($onComplete) {
             $this->write_active = false;
 
             $onComplete();
