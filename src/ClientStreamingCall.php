@@ -20,16 +20,21 @@
 namespace Grpc;
 
 use Closure;
+use Generator;
+use Grpc\Call\ClientCallInterface;
 use RuntimeException;
+use SOFe\AwaitGenerator\Await;
 
 /**
  * Represents an active call that sends a stream of messages and then gets
  * a single response.
  */
-class ClientStreamingCall extends AbstractCall
+class ClientStreamingCall extends AbstractCall implements ClientCallInterface
 {
     /** @var bool */
-    private $write_active = true;
+    private $write_active = false;
+    /** @var Closure */
+    private $on_ready_callback;
 
     /**
      * Start the gRPC call.
@@ -38,7 +43,31 @@ class ClientStreamingCall extends AbstractCall
      */
     public function start(array $metadata = [])
     {
-        $this->call->startBatch([OP_SEND_INITIAL_METADATA => $metadata]);
+        Await::f2c(function () use ($metadata): Generator {
+            $this->call->startBatch([
+                OP_SEND_INITIAL_METADATA => $metadata
+            ], yield);
+
+            yield Await::ONCE;
+
+            $this->write_active = true;
+
+            ($this->on_ready_callback)();
+        });
+    }
+
+    public function isClientReady(): bool
+    {
+        return $this->write_active;
+    }
+
+    public function onClientReady(Closure $onReady): void
+    {
+        if ($this->write_active) {
+            ($onReady)();
+        } else {
+            $this->on_ready_callback = $onReady;
+        }
     }
 
     /**
@@ -69,20 +98,20 @@ class ClientStreamingCall extends AbstractCall
     }
 
     /**
-     * Read the response of a request from a callable function. This method may perform thread-blocking
-     * operation if "client_async" is set to false.
+     * Ends client streaming call and wait for a response by the remote server.
+     * This call will no longer be usable after calling the method.
      *
-     * @param Closure $onMessage (Response data, Status)
+     * @param Closure $onComplete (Response data, Status)
      * @return void
      */
-    public function onStreamNext(Closure $onMessage): void
+    public function onClientCompleted(Closure $onComplete): void
     {
         $this->call->startBatch([
             OP_SEND_CLOSE_FROM_CLIENT => true,
             OP_RECV_INITIAL_METADATA => true,
             OP_RECV_MESSAGE => true,
             OP_RECV_STATUS_ON_CLIENT => true,
-        ], function ($event) use ($onMessage) {
+        ], function ($event) use ($onComplete) {
             $this->write_active = false;
 
             $this->metadata = $event->metadata;
@@ -90,7 +119,7 @@ class ClientStreamingCall extends AbstractCall
             $status = $event->status;
             $this->trailing_metadata = $status->metadata;
 
-            $onMessage($this->_deserializeResponse($event->message), $status);
+            $onComplete($this->_deserializeResponse($event->message), $status);
         });
     }
 }

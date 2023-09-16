@@ -20,13 +20,14 @@
 namespace Grpc;
 
 use Closure;
-use RuntimeException;
+use Grpc\Call\ServerCallInterface;
+use LogicException;
 
 /**
  * Represents an active call that sends a single message and then gets a
  * single response.
  */
-class UnaryCall extends AbstractCall
+class UnaryCall extends AbstractCall implements ServerCallInterface
 {
     /**
      * Start the call.
@@ -53,24 +54,23 @@ class UnaryCall extends AbstractCall
         });
     }
 
-    /**
-     * Wait for the server to respond with data and a status.
-     *
-     * @param Closure $onComplete [response data, status]
-     * @return void
-     */
-    public function onClientNext(Closure $onComplete): void
+    public function onStreamNext(Closure $onMessage): void
     {
         $batch = [
             OP_RECV_MESSAGE => true,
             OP_RECV_STATUS_ON_CLIENT => true,
         ];
 
-        $this->call->startBatch($batch, function ($event) use ($onComplete) {
+        $this->call->startBatch($batch, function ($event) use ($onMessage) {
             $status = $event->status;
             $this->trailing_metadata = $status->metadata;
 
-            $onComplete($this->_deserializeResponse($event->message), $status);
+            $onMessage($this->_deserializeResponse($event->message), $status);
         });
+    }
+
+    public function onStreamCompleted(Closure $onCompleted): void
+    {
+        throw new LogicException("Stream completion is always triggered immediately after receiving a message by remote server.");
     }
 }

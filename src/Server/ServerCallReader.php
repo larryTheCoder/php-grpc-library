@@ -17,10 +17,9 @@
  *
  */
 
-namespace Grpc\server;
+namespace Grpc\Server;
 
-use const Grpc\STATUS_OK;
-use const Grpc\STATUS_UNIMPLEMENTED;
+use const Grpc\OP_RECV_MESSAGE;
 
 /**
  * This is an experimental and incomplete implementation of gRPC server
@@ -29,30 +28,27 @@ use const Grpc\STATUS_UNIMPLEMENTED;
  * DO NOT USE in production.
  */
 
-/**
- * Class Status
- * @package Grpc
- */
-class Status
+class ServerCallReader
 {
-    public static function status(int $code, string $details, array $metadata = null): array
+    public function __construct($call, string $request_type)
     {
-        $status = [
-            'code' => $code,
-            'details' => $details,
-        ];
-        if ($metadata) {
-            $status['metadata'] = $metadata;
-        }
-        return $status;
+        $this->call_ = $call;
+        $this->request_type_ = $request_type;
     }
 
-    public static function ok(array $metadata = null): array
+    public function read()
     {
-        return Status::status(STATUS_OK, 'OK', $metadata);
+        $event = $this->call_->startBatch([
+            OP_RECV_MESSAGE => true,
+        ]);
+        if ($event->message === null) {
+            return null;
+        }
+        $data = new $this->request_type_;
+        $data->mergeFromString($event->message);
+        return $data;
     }
-    public static function unimplemented(): array
-    {
-        return Status::status(STATUS_UNIMPLEMENTED, 'UNIMPLEMENTED');
-    }
+
+    private $call_;
+    private $request_type_;
 }

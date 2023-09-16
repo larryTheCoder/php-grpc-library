@@ -21,6 +21,8 @@ namespace Grpc;
 
 use Closure;
 use Generator;
+use Grpc\Call\ClientCallInterface;
+use Grpc\Call\ServerCallInterface;
 use RuntimeException;
 use SOFe\AwaitGenerator\Await;
 
@@ -28,14 +30,16 @@ use SOFe\AwaitGenerator\Await;
  * Represents an active call that allows for sending and receiving messages
  * in streams in any order.
  */
-class BidiStreamingCall extends AbstractCall
+class BidiStreamingCall extends AbstractCall implements ClientCallInterface, ServerCallInterface
 {
     /** @var bool */
-    private $write_active = true;
+    private $write_active = false;
     /** @var bool */
     private $read_active = true;
     /** @var Closure */
     private $on_close_callback;
+    /** @var Closure */
+    private $on_ready_callback;
 
     /**
      * @internal
@@ -44,16 +48,23 @@ class BidiStreamingCall extends AbstractCall
     {
         Await::f2c(function () use ($metadata): Generator {
             $this->call->startBatch([
-                OP_SEND_INITIAL_METADATA => $metadata,
+                OP_SEND_INITIAL_METADATA => $metadata
+            ], yield);
+
+            yield Await::ONCE;
+
+            $this->write_active = true;
+
+            ($this->on_ready_callback)();
+
+            $this->call->startBatch([
                 OP_RECV_INITIAL_METADATA => true,
+                OP_RECV_STATUS_ON_CLIENT => true
             ], yield);
 
             $event = yield Await::ONCE;
 
             $this->metadata = $event->metadata;
-            $this->call->startBatch([OP_RECV_STATUS_ON_CLIENT => true], yield);
-
-            $event = yield Await::ONCE;
 
             $this->read_active = false;
 
@@ -94,6 +105,20 @@ class BidiStreamingCall extends AbstractCall
     public function onStreamCompleted(Closure $onCompleted): void
     {
         $this->on_close_callback = $onCompleted;
+    }
+
+    public function isClientReady(): bool
+    {
+        return $this->write_active;
+    }
+
+    public function onClientReady(Closure $onReady): void
+    {
+        if ($this->write_active) {
+            ($onReady)();
+        } else {
+            $this->on_ready_callback = $onReady;
+        }
     }
 
     /**

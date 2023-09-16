@@ -17,7 +17,7 @@
  *
  */
 
-namespace Grpc\server;
+namespace Grpc\Server;
 
 use Grpc\MethodDescriptor;
 use Grpc\Server;

@@ -21,14 +21,14 @@ namespace Grpc;
 
 use Closure;
 use Generator;
-use RuntimeException;
+use Grpc\Call\ServerCallInterface;
 use SOFe\AwaitGenerator\Await;
 
 /**
  * Represents an active call that sends a single message and then gets a
  * stream of responses.
  */
-class ServerStreamingCall extends AbstractCall
+class ServerStreamingCall extends AbstractCall implements ServerCallInterface
 {
     /** @var bool */
     private $read_active = true;

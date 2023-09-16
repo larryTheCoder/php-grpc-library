@@ -17,7 +17,7 @@
  *
  */
 
-namespace Grpc\server;
+namespace Grpc\Server;
 
 use const Grpc\OP_RECV_CLOSE_ON_SERVER;
 use const Grpc\OP_SEND_INITIAL_METADATA;
