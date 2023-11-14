@@ -17,18 +17,29 @@
  *
  */
 
-namespace Grpc;
+namespace Grpc\Client;
 
 use Closure;
 use Generator;
+use Grpc\AbstractCall;
 use Grpc\Call\ClientCallInterface;
 use Grpc\Call\ServerCallInterface;
+use Grpc\Status\RpcCallStatus;
 use RuntimeException;
 use SOFe\AwaitGenerator\Await;
+use const Grpc\OP_RECV_INITIAL_METADATA;
+use const Grpc\OP_RECV_MESSAGE;
+use const Grpc\OP_RECV_STATUS_ON_CLIENT;
+use const Grpc\OP_SEND_CLOSE_FROM_CLIENT;
+use const Grpc\OP_SEND_INITIAL_METADATA;
+use const Grpc\OP_SEND_MESSAGE;
 
 /**
  * Represents an active call that allows for sending and receiving messages
  * in streams in any order.
+ *
+ * @phpstan-template TSend
+ * @phpstan-template TReceive
  */
 class BidiStreamingCall extends AbstractCall implements ClientCallInterface, ServerCallInterface
 {
@@ -68,7 +79,7 @@ class BidiStreamingCall extends AbstractCall implements ClientCallInterface, Ser
 
             $this->read_active = false;
 
-            ($this->on_close_callback)($event->status->code, $event->status->reason, $event->status->details);
+            ($this->on_close_callback)(new RpcCallStatus($event->status->code, $event->status->reason, $event->status->details));
         });
     }
 
@@ -76,7 +87,7 @@ class BidiStreamingCall extends AbstractCall implements ClientCallInterface, Ser
      * Listen for a stream of messages sent by the server. The stream of message will continue to flow
      * until the call itself is closed or terminated.
      *
-     * @param Closure $onMessage The stream of messages.
+     * @phpstan-param Closure(TReceive, RpcCallStatus): void $onMessage
      */
     public function onStreamNext(Closure $onMessage): void
     {
@@ -100,7 +111,7 @@ class BidiStreamingCall extends AbstractCall implements ClientCallInterface, Ser
      * Listen for call completion by the server. The callback will indicate that there will be no
      * writes by the server after the callback is called.
      *
-     * @phpstan-param Closure(int, string, string): void $onCompleted
+     * @phpstan-param Closure(RpcCallStatus): void $onCompleted
      */
     public function onStreamCompleted(Closure $onCompleted): void
     {
@@ -127,6 +138,8 @@ class BidiStreamingCall extends AbstractCall implements ClientCallInterface, Ser
      * @param mixed $data The data to write
      * @param array $options An array of options, possible keys: 'flags' => a number (optional)
      * @param Closure|null $onComplete Called when the request were completed.
+     *
+     * @phpstan-param TSend $data
      */
     public function onClientNext($data, array $options = [], ?Closure $onComplete = null): void
     {

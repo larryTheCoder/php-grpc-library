@@ -20,7 +20,6 @@
 namespace Grpc;
 
 use Grpc\Grpc;
-use Grpc\Channel;
 use Grpc\InterceptorChannel;
 
 /**

@@ -19,6 +19,10 @@
 
 namespace Grpc;
 
+use Grpc\Client\BidiStreamingCall;
+use Grpc\Client\ClientStreamingCall;
+use Grpc\Client\ServerStreamingCall;
+use Grpc\Client\UnaryCall;
 use Grpc\Connect;
 use Grpc\Exception;
 use Grpc\Internal\InterceptorChannel;

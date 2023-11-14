@@ -17,15 +17,25 @@
  *
  */
 
-namespace Grpc;
+namespace Grpc\Client;
 
 use Closure;
+use Grpc\AbstractCall;
 use Grpc\Call\ServerCallInterface;
+use Grpc\Status\RpcCallStatus;
 use LogicException;
+use const Grpc\OP_RECV_INITIAL_METADATA;
+use const Grpc\OP_RECV_MESSAGE;
+use const Grpc\OP_RECV_STATUS_ON_CLIENT;
+use const Grpc\OP_SEND_CLOSE_FROM_CLIENT;
+use const Grpc\OP_SEND_INITIAL_METADATA;
+use const Grpc\OP_SEND_MESSAGE;
 
 /**
  * Represents an active call that sends a single message and then gets a
  * single response.
+ *
+ * @phpstan-template TReturn
  */
 class UnaryCall extends AbstractCall implements ServerCallInterface
 {
@@ -54,6 +64,9 @@ class UnaryCall extends AbstractCall implements ServerCallInterface
         });
     }
 
+    /**
+     * @phpstan-param Closure(TReturn, RpcCallStatus): void $onMessage
+     */
     public function onStreamNext(Closure $onMessage): void
     {
         $batch = [
@@ -65,7 +78,7 @@ class UnaryCall extends AbstractCall implements ServerCallInterface
             $status = $event->status;
             $this->trailing_metadata = $status->metadata;
 
-            $onMessage($this->_deserializeResponse($event->message), $status);
+            $onMessage($this->_deserializeResponse($event->message), new RpcCallStatus($status->code, $status->reason, $status->details));
         });
     }
 

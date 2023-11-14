@@ -17,16 +17,26 @@
  *
  */
 
-namespace Grpc;
+namespace Grpc\Client;
 
 use Closure;
 use Generator;
+use Grpc\AbstractCall;
 use Grpc\Call\ServerCallInterface;
+use Grpc\Status\RpcCallStatus;
 use SOFe\AwaitGenerator\Await;
+use const Grpc\OP_RECV_INITIAL_METADATA;
+use const Grpc\OP_RECV_MESSAGE;
+use const Grpc\OP_RECV_STATUS_ON_CLIENT;
+use const Grpc\OP_SEND_CLOSE_FROM_CLIENT;
+use const Grpc\OP_SEND_INITIAL_METADATA;
+use const Grpc\OP_SEND_MESSAGE;
 
 /**
  * Represents an active call that sends a single message and then gets a
  * stream of responses.
+ *
+ * @phpstan-template TReturn
  */
 class ServerStreamingCall extends AbstractCall implements ServerCallInterface
 {
@@ -68,7 +78,7 @@ class ServerStreamingCall extends AbstractCall implements ServerCallInterface
 
             $this->read_active = false;
 
-            ($this->on_close_callback)($event->status->code, $event->status->reason, $event->status->details);
+            ($this->on_close_callback)(new RpcCallStatus($event->status->code, $event->status->reason, $event->status->details));
         });
     }
 
@@ -76,7 +86,7 @@ class ServerStreamingCall extends AbstractCall implements ServerCallInterface
      * Listen for a stream of messages sent by the server. The stream of message will continue to flow
      * until the server closed its connection.
      *
-     * @param Closure $onMessage The stream of messages.
+     * @phpstan-param Closure(TReturn): void $onMessage
      */
     public function onStreamNext(Closure $onMessage): void
     {
@@ -98,7 +108,7 @@ class ServerStreamingCall extends AbstractCall implements ServerCallInterface
      * Listen for call completion by the server. The callback will indicate that there will be no
      * writes by the server after the callback is called.
      *
-     * @phpstan-param Closure(int, string, string): void $onCompleted
+     * @phpstan-param Closure(RpcCallStatus): void $onCompleted
      */
     public function onStreamCompleted(Closure $onCompleted): void
     {

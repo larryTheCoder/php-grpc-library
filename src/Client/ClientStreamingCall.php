@@ -17,17 +17,28 @@
  *
  */
 
-namespace Grpc;
+namespace Grpc\Client;
 
 use Closure;
 use Generator;
+use Grpc\AbstractCall;
 use Grpc\Call\ClientCallInterface;
+use Grpc\Status\RpcCallStatus;
 use RuntimeException;
 use SOFe\AwaitGenerator\Await;
+use const Grpc\OP_RECV_INITIAL_METADATA;
+use const Grpc\OP_RECV_MESSAGE;
+use const Grpc\OP_RECV_STATUS_ON_CLIENT;
+use const Grpc\OP_SEND_CLOSE_FROM_CLIENT;
+use const Grpc\OP_SEND_INITIAL_METADATA;
+use const Grpc\OP_SEND_MESSAGE;
 
 /**
  * Represents an active call that sends a stream of messages and then gets
  * a single response.
+ *
+ * @phpstan-template TSend
+ * @phpstan-template TReceive
  */
 class ClientStreamingCall extends AbstractCall implements ClientCallInterface
 {
@@ -76,6 +87,8 @@ class ClientStreamingCall extends AbstractCall implements ClientCallInterface
      * @param mixed $data The data to write
      * @param array $options An array of options, possible keys: 'flags' => a number (optional)
      * @param Closure|null $onComplete Called when the request were completed.
+     *
+     * @phpstan-param TSend $data
      */
     public function onClientNext($data, array $options = [], ?Closure $onComplete = null): void
     {
@@ -103,6 +116,8 @@ class ClientStreamingCall extends AbstractCall implements ClientCallInterface
      *
      * @param Closure $onComplete (Response data, Status)
      * @return void
+     *
+     * @phpstan-param Closure(TReceive, RpcCallStatus): void $onMessage
      */
     public function onClientCompleted(Closure $onComplete): void
     {
@@ -119,7 +134,7 @@ class ClientStreamingCall extends AbstractCall implements ClientCallInterface
             $status = $event->status;
             $this->trailing_metadata = $status->metadata;
 
-            $onComplete($this->_deserializeResponse($event->message), $status);
+            $onComplete($this->_deserializeResponse($event->message), new RpcCallStatus($status->code, $status->reason, $status->details));
         });
     }
 }
