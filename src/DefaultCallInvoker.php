@@ -18,11 +18,6 @@
  */
 namespace Grpc;
 
-use Grpc\Client\BidiStreamingCall;
-use Grpc\Client\ClientStreamingCall;
-use Grpc\Client\ServerStreamingCall;
-use Grpc\Client\UnaryCall;
-
 /**
  * Default call invoker in the gRPC stub.
  */

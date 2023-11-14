@@ -17,45 +17,35 @@
  *
  */
 
-namespace Grpc\Client;
+namespace Grpc;
 
 use Closure;
 use Generator;
-use Grpc\AbstractCall;
 use Grpc\Call\ClientCallInterface;
-use Grpc\Call\ServerCallInterface;
 use Grpc\Status\RpcCallStatus;
 use RuntimeException;
 use SOFe\AwaitGenerator\Await;
-use const Grpc\OP_RECV_INITIAL_METADATA;
-use const Grpc\OP_RECV_MESSAGE;
-use const Grpc\OP_RECV_STATUS_ON_CLIENT;
-use const Grpc\OP_SEND_CLOSE_FROM_CLIENT;
-use const Grpc\OP_SEND_INITIAL_METADATA;
-use const Grpc\OP_SEND_MESSAGE;
 
 /**
- * Represents an active call that allows for sending and receiving messages
- * in streams in any order.
+ * Represents an active call that sends a stream of messages and then gets
+ * a single response.
  *
  * @phpstan-template TSend
  * @phpstan-template TReceive
  */
-class BidiStreamingCall extends AbstractCall implements ClientCallInterface, ServerCallInterface
+class ClientStreamingCall extends AbstractCall implements ClientCallInterface
 {
     /** @var bool */
     private $write_active = false;
-    /** @var bool */
-    private $read_active = true;
-    /** @var Closure */
-    private $on_close_callback;
     /** @var Closure */
     private $on_ready_callback;
 
     /**
-     * @internal
+     * Start the gRPC call.
+     *
+     * @param array $metadata Metadata to send with the call, if applicable (optional)
      */
-    public function start(array $metadata = []): void
+    public function start(array $metadata = [])
     {
         Await::f2c(function () use ($metadata): Generator {
             $this->call->startBatch([
@@ -67,55 +57,7 @@ class BidiStreamingCall extends AbstractCall implements ClientCallInterface, Ser
             $this->write_active = true;
 
             ($this->on_ready_callback)();
-
-            $this->call->startBatch([
-                OP_RECV_INITIAL_METADATA => true,
-                OP_RECV_STATUS_ON_CLIENT => true
-            ], yield);
-
-            $event = yield Await::ONCE;
-
-            $this->metadata = $event->metadata;
-
-            $this->read_active = false;
-
-            ($this->on_close_callback)(new RpcCallStatus($event->status->code, $event->status->reason, $event->status->details));
         });
-    }
-
-    /**
-     * Listen for a stream of messages sent by the server. The stream of message will continue to flow
-     * until the call itself is closed or terminated.
-     *
-     * @phpstan-param Closure(TReceive, RpcCallStatus): void $onMessage
-     */
-    public function onStreamNext(Closure $onMessage): void
-    {
-        Await::f2c(function () use ($onMessage): Generator {
-            repeat:
-
-            // In a non-async operation, this will become an infinite recursion.
-            $batch = [OP_RECV_MESSAGE => true];
-
-            $this->call->startBatch($batch, yield);
-            $event = yield Await::ONCE;
-
-            if ($this->read_active && $event->message !== null) {
-                $onMessage($this->_deserializeResponse($event->message));
-                goto repeat;
-            }
-        });
-    }
-
-    /**
-     * Listen for call completion by the server. The callback will indicate that there will be no
-     * writes by the server after the callback is called.
-     *
-     * @phpstan-param Closure(RpcCallStatus): void $onCompleted
-     */
-    public function onStreamCompleted(Closure $onCompleted): void
-    {
-        $this->on_close_callback = $onCompleted;
     }
 
     public function isClientReady(): bool
@@ -162,16 +104,30 @@ class BidiStreamingCall extends AbstractCall implements ClientCallInterface, Ser
     }
 
     /**
-     * Indicate that no more writes will be sent, but the server will still be able to send messages
+     * Ends client streaming call and wait for a response by the remote server.
+     * This call will no longer be usable after calling the method.
+     *
+     * @param Closure $onComplete (Response data, Status)
+     * @return void
+     *
+     * @phpstan-param Closure(TReceive, RpcCallStatus): void $onMessage
      */
     public function onClientCompleted(Closure $onComplete): void
     {
         $this->call->startBatch([
             OP_SEND_CLOSE_FROM_CLIENT => true,
-        ], function () use ($onComplete) {
+            OP_RECV_INITIAL_METADATA => true,
+            OP_RECV_MESSAGE => true,
+            OP_RECV_STATUS_ON_CLIENT => true,
+        ], function ($event) use ($onComplete) {
             $this->write_active = false;
 
-            $onComplete();
+            $this->metadata = $event->metadata;
+
+            $status = $event->status;
+            $this->trailing_metadata = $status->metadata;
+
+            $onComplete($this->_deserializeResponse($event->message), new RpcCallStatus($status->code, $status->reason, $status->details));
         });
     }
 }

@@ -17,20 +17,13 @@
  *
  */
 
-namespace Grpc\Client;
+namespace Grpc;
 
 use Closure;
 use Generator;
-use Grpc\AbstractCall;
 use Grpc\Call\ServerCallInterface;
 use Grpc\Status\RpcCallStatus;
 use SOFe\AwaitGenerator\Await;
-use const Grpc\OP_RECV_INITIAL_METADATA;
-use const Grpc\OP_RECV_MESSAGE;
-use const Grpc\OP_RECV_STATUS_ON_CLIENT;
-use const Grpc\OP_SEND_CLOSE_FROM_CLIENT;
-use const Grpc\OP_SEND_INITIAL_METADATA;
-use const Grpc\OP_SEND_MESSAGE;
 
 /**
  * Represents an active call that sends a single message and then gets a
