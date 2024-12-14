@@ -32,6 +32,11 @@ use LogicException;
  */
 class UnaryCall extends AbstractCall implements ServerCallInterface
 {
+    public function isServerReady(): bool
+    {
+        return true; // The server is always ready
+    }
+
     /**
      * Start the call.
      *

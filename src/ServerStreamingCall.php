@@ -38,6 +38,11 @@ class ServerStreamingCall extends AbstractCall implements ServerCallInterface
     /** @var Closure */
     private $on_close_callback;
 
+    public function isServerReady(): bool
+    {
+        return $this->read_active;
+    }
+
     /**
      * Start the call.
      *
@@ -76,8 +81,9 @@ class ServerStreamingCall extends AbstractCall implements ServerCallInterface
     }
 
     /**
-     * Listen for a stream of messages sent by the server. The stream of message will continue to flow
-     * until the server closed its connection.
+     * Listen for a stream of messages sent by the server. For asynchronous RPC, the stream of message will
+     * be consumed to the callback until the call itself is closed or terminated, synchronous RPC however
+     * requires developer to call this method again to receive any message from the server.
      *
      * @phpstan-param Closure(TReturn): void $onMessage
      */
@@ -86,13 +92,17 @@ class ServerStreamingCall extends AbstractCall implements ServerCallInterface
         Await::f2c(function () use ($onMessage): Generator {
             repeat:
 
-            // In a non-async operation, this will become an infinite recursion.
             $this->call->startBatch([OP_RECV_MESSAGE => true], yield);
             $event = yield Await::ONCE;
 
             if ($this->read_active && $event->message !== null) {
                 $onMessage($this->_deserializeResponse($event->message));
-                goto repeat;
+
+                // We purposefully repeat this step if the current RPC is asynchronous, because in synchronous operation
+                // This will permanently block the thread it is reading until the end of the stream.
+                if ($this->is_async) {
+                    goto repeat;
+                }
             }
         });
     }

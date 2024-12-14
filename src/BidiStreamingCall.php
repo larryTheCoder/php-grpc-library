@@ -77,8 +77,9 @@ class BidiStreamingCall extends AbstractCall implements ClientCallInterface, Ser
     }
 
     /**
-     * Listen for a stream of messages sent by the server. The stream of message will continue to flow
-     * until the call itself is closed or terminated.
+     * Listen for a stream of messages sent by the server. For asynchronous RPC, the stream of message will
+     * be consumed until the call itself is closed or terminated, synchronous RPC however requires developer to
+     * call this method again to receive any message from the server.
      *
      * @phpstan-param Closure(TReceive, RpcCallStatus): void $onMessage
      */
@@ -87,15 +88,17 @@ class BidiStreamingCall extends AbstractCall implements ClientCallInterface, Ser
         Await::f2c(function () use ($onMessage): Generator {
             repeat:
 
-            // In a non-async operation, this will become an infinite recursion.
-            $batch = [OP_RECV_MESSAGE => true];
-
-            $this->call->startBatch($batch, yield);
+            $this->call->startBatch([OP_RECV_MESSAGE => true], yield);
             $event = yield Await::ONCE;
 
             if ($this->read_active && $event->message !== null) {
                 $onMessage($this->_deserializeResponse($event->message));
-                goto repeat;
+
+                // We purposefully repeat this step if the current RPC is asynchronous, because in synchronous operation
+                // This will permanently block the thread it is reading until the end of the stream.
+                if ($this->is_async) {
+                    goto repeat;
+                }
             }
         });
     }
@@ -114,6 +117,11 @@ class BidiStreamingCall extends AbstractCall implements ClientCallInterface, Ser
     public function isClientReady(): bool
     {
         return $this->write_active;
+    }
+
+    public function isServerReady(): bool
+    {
+        return $this->read_active;
     }
 
     public function onClientReady(Closure $onReady): void

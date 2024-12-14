@@ -7,6 +7,11 @@ use Closure;
 interface ServerCallInterface
 {
     /**
+     * @return bool Indicate the server is ready to send messages to the client.
+     */
+    public function isServerReady(): bool;
+
+    /**
      * Method that will be called when a message is sent by the remote server.
      * The method implementation varies with other call method.
      *
