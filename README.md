@@ -134,7 +134,7 @@ $request->onClientReady(function () use ($request, $data): void {
 });
 ```
 
-### Bidirectional Streaming Call
+#### Bidirectional Streaming Call
 A bidirectional streaming call is a combination of Client streaming method and Server streaming method, it typically
 used for long-lived streaming and/or processes that takes multiple input and output from client and the server. Either
 way, it depends on the use-cases and how you want it to be implemented.
