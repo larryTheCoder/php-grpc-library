@@ -8,10 +8,9 @@ Here lies the documentation to interact with my own [grpc binding](https://githu
 ### Asynchronous calls
 
 PHP does not have an event-loop. Thus, user-space event loop is required to check if a call is completed. The following
-must be called periodically as
-a scheduled task. The first parameter in this method is the time allowed for the polling mechanism to time-out, setting
-it to `PHP_INT_MIN` will cause
-it to immediately process any events and return immediately no more than O(1).
+must be called periodically as a scheduled task. The first parameter in this method is the time allowed for the polling 
+mechanism to time-out, setting it to `PHP_INT_MIN` will cause it to immediately process any events and return immediately 
+no more than O(1).
 
 ```php
 Call::drainCompletionQueue(PHP_INT_MIN);
@@ -35,7 +34,7 @@ below shows the supported service method via asynchronous or synchronous operati
 
 All service method in PHP now requires a [Callback](https://www.php.net/manual/en/language.types.callable.php) to handle
 messages received from the server. The callback method may return an object if documented, usually the object returned are
-messages that was consumed from the server.
+messages that was consumed from the server and/or a `RpcCallStatus` that contains information about the RPC after completed.
 
 Each `AbstractCall` will now have an interface indicating that the call itself is either `ClientCallInterface` and/or a 
 `ServerCallInterface`, the implementing methods have similar implementation but a clear and concise documentation can be
@@ -47,8 +46,8 @@ referred in the interface itself.
 | [ClientCallInterface](https://github.com/larryTheCoder/php-grpc-library/blob/main/src/Call/ClientCallInterface.php) |  No   |        No        |       Yes        |      Yes      |
 
 #### Unary Call
-For unary call, is the basic foundation of HTTP protocol, a client send a request and expect an answer from the server.
-The code below is how the preferred
+Unary call is the basic foundation of the HTTP protocol, a client send out a request, and they will expect an answer returned 
+from the server. The code below is how the preferred way on how to start a Unary Call.
 
 ```php
 import Grpc\Status\RpcCallStatus;
@@ -74,15 +73,17 @@ $request->onStreamNext(function (Message $message): void {
     // Perform operations on $message, will be called multiple times.
 });
 ```
+
 However, for synchronous operation. it is *required* to start another `onStreamNext` call after receiving a message
-from the server. In other words, the previous callback will not be reused to consume the next message. The behaviour for 
-this method is different from an asynchronous operations is because of how synchronous operations work.
+from the server. In other word, the previous callback will not be reused to consume the next message. The behaviour for 
+this method is different from an asynchronous operations because of how synchronous operations work.
 
 Since the working thread will be blocked, having `onStreamNext` to handle multiple messages from the server will prevent
-other tasks from running. Since PHP is mostly consists of a single-thread that executes tasks, the option to wait for message
+other tasks from running. PHP is mostly consists of a single-thread that executes tasks, the option to wait for message
 to be consumed from the server is very limited.
 
-Therefore, developers will have to properly implement all `ServerCallInterface` based on their requirements.
+Therefore, developers will have to properly implement on how messages will be consumed to all `ServerCallInterface` 
+based on their requirements.
 
 ```php
 import Grpc\Status\RpcCallStatus;
@@ -146,13 +147,15 @@ $request = $this->gsmsService->startBidiStreamingCall();
 // Wait for the initial metadata to be sent, for synchronous operations, this does not apply and can directly
 // call the onStreamNext method.
 $request->onClientReady(function () use ($request): void {
+
+    // For synchronous requests, you are required to call this method multiple times.
     $request->onStreamNext(function (Message $response): void {
         // Start listening to updates.
     });
 });
 
 $request->onStreamCompleted(function (RpcCallStatus $status): void {
-    // Handle RPC Call status.
+    // Handle completion RPC Call status.
 });
 
 // ... Somewhere in other code.
